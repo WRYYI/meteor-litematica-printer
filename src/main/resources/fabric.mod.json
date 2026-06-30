@@ -14,12 +14,22 @@
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.kkllffaa.meteor_litematica_printer.Addon"
+      {
+        "adapter": "kotlin",
+        "value": "com.kkllffaa.meteor_litematica_printer.Addon"
+      }
     ]
   },
+  "mixins": [
+    "mixins/meteor_litematica_printer.json"
+  ],
+  "custom": {
+    "meteor-client:color": "36, 173, 243"
+  },
   "depends": {
-    "java": ">=21",
+    "java": ">=25",
     "minecraft": ">=${mc_version}",
-    "meteor-client": "*"
+    "meteor-client": "*",
+    "fabric-language-kotlin": ">=${fabric_kotlin_version}"
   }
 }

@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.kkllffaa.meteor_litematica_printer.mixins",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MultiPlayerGameModeMixin",
+    "MultiPlayerGameModeAccessor",
+    "MinecraftStartAttackMixin",
+    "LocalPlayerMixin",
+    "ServerSyncAccessor",
+    "SignBlockEntityMixin",
+    "AnvilScreenHandlerMixin",
+    "TextFieldWidgetMixin",
+    "LavaFogModifierMixin",
+    "WorldBorderMixin",
+    "StringUtilMixin",
+    "ChatFormattingMixin",
+    "EntityMixin",
+    "CameraMixin",
+    "GameOptionsMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

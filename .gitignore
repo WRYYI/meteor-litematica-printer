@@ -5,6 +5,9 @@ build/
 out/
 classes/
 
+
+local.gradle
+
 # eclipse
 
 *.launch
@@ -17,13 +20,13 @@ classes/
 *.iws
 
 # vscode
-
+.kotlin
 .settings/
 .vscode/
 bin/
 .classpath
 .project
-
+*.md
 # macos
 
 *.DS_Store

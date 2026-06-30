@@ -1,0 +1,267 @@
+package com.kkllffaa.meteor_litematica_printer.Modules.Tools.OnlyESP
+
+import com.kkllffaa.meteor_litematica_printer.Addon
+import meteordevelopment.meteorclient.events.render.Render2DEvent
+import meteordevelopment.meteorclient.events.render.Render3DEvent
+import meteordevelopment.meteorclient.renderer.Renderer2D
+import meteordevelopment.meteorclient.renderer.ShapeMode
+import meteordevelopment.meteorclient.settings.*
+import meteordevelopment.meteorclient.systems.modules.Module
+import meteordevelopment.meteorclient.systems.modules.render.blockesp.ESPBlockData
+import meteordevelopment.meteorclient.utils.Utils
+import meteordevelopment.meteorclient.utils.entity.EntityUtils
+import meteordevelopment.meteorclient.utils.render.NametagUtils
+import meteordevelopment.meteorclient.utils.render.RenderUtils
+import meteordevelopment.meteorclient.utils.render.WireframeEntityRenderer
+import meteordevelopment.meteorclient.utils.render.color.SettingColor
+import meteordevelopment.orbit.EventHandler
+import net.minecraft.world.level.block.Block
+import net.minecraft.world.entity.item.ItemEntity
+import net.minecraft.world.item.BlockItem
+import net.minecraft.util.Mth
+import org.joml.Vector3d
+
+object ItemFinder : Module(Addon.TOOLS, "esp-Item-Entity", "Renders items through walls.") {
+    private val sgGeneral = settings.defaultGroup
+    private val sgColors = settings.createGroup("Colors")
+
+    //region General
+    private val mode: Setting<Mode> = sgGeneral.add(
+        EnumSetting.Builder<Mode>()
+            .name("mode")
+            .description("Rendering mode.")
+            .defaultValue(Mode.Wireframe)
+            .build()
+    )
+
+    private val minCount: Setting<Int> = sgGeneral.add(
+        IntSetting.Builder()
+            .name("min-count")
+            .description("Only render item entities whose stack count is at least this value (e.g. only show piles of sand/gravel of 16+).")
+            .defaultValue(16)
+            .min(1).sliderMin(1)
+            .max(64).sliderMax(64)
+            .build()
+    )
+
+    //endregion
+    //region Colors
+    private val blocks: Setting<MutableList<Block>> = sgColors.add(
+        BlockListSetting.Builder()
+            .name("blocks")
+            .description("Blocks to search for.")
+            .onChanged { if (isActive && Utils.canUpdate()) onActivate() }
+            .build()
+    )
+
+    private val defaultBlockConfig: Setting<ESPBlockData> = sgColors.add(
+        GenericSetting.Builder<ESPBlockData>()
+            .name("default-block-config")
+            .description("Default block config.")
+            .defaultValue(
+                ESPBlockData(
+                    ShapeMode.Lines,
+                    SettingColor(0, 255, 0),
+                    SettingColor(0, 255, 0, 25),
+                    true,
+                    SettingColor(0, 255, 0, 125)
+                )
+            )
+            .build()
+    )
+
+    private val blockConfigs: Setting<MutableMap<Block, ESPBlockData>> =
+        sgColors.add(
+            BlockDataSetting.Builder<ESPBlockData>()
+                .name("block-configs")
+                .description("Config for each block.")
+                .defaultData(defaultBlockConfig)
+                .build()
+        )
+
+
+    //endregion
+    private val pos1 = Vector3d()
+    private val pos2 = Vector3d()
+    private val pos = Vector3d()
+
+    private var count = 0
+
+    // Box
+    @EventHandler
+    private fun onRender3D(event: Render3DEvent) {
+        if (mode.get() == Mode._2D) return
+
+        count = 0
+        mc.level?.let { world ->
+            for (entity in world.entitiesForRendering()) {
+                if (entity !is ItemEntity || !EntityUtils.isInRenderDistance(entity)) continue
+                drawBoundingBox(event, entity)
+            }
+        }
+    }
+
+    private fun drawBoundingBox(event: Render3DEvent, itemEntity: ItemEntity) {
+        val renderData = getItemColorData(itemEntity) ?: return
+
+        count++
+        if (mode.get() == Mode.Wireframe) {
+            WireframeEntityRenderer.render(
+                event,
+                itemEntity,
+                1.0,
+                renderData.sideColor,
+                renderData.lineColor,
+                renderData.shapeMode
+            )
+        } else if (mode.get() == Mode.Box) {
+            val x = Mth.lerp(
+                event.tickDelta.toDouble(),
+                itemEntity.xOld,
+                itemEntity.x
+            ) - itemEntity.x
+            val y = Mth.lerp(
+                event.tickDelta.toDouble(),
+                itemEntity.yOld,
+                itemEntity.y
+            ) - itemEntity.y
+            val z = Mth.lerp(
+                event.tickDelta.toDouble(),
+                itemEntity.zOld,
+                itemEntity.z
+            ) - itemEntity.z
+
+            val box = itemEntity.boundingBox
+            event.renderer.box(
+                x + box.minX,
+                y + box.minY,
+                z + box.minZ,
+                x + box.maxX,
+                y + box.maxY,
+                z + box.maxZ,
+                renderData.sideColor,
+                renderData.lineColor,
+                renderData.shapeMode,
+                0
+            )
+        }
+        TryRenderTracer(event, itemEntity, renderData)
+    }
+
+    private fun TryRenderTracer(event: Render3DEvent, itemEntity: ItemEntity, renderData: ESPBlockData) {
+        if (renderData.tracer) {
+            event.renderer.line(
+                RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z,
+                itemEntity.x, itemEntity.y, itemEntity.z,
+                renderData.tracerColor
+            )
+        }
+    }
+
+    // 2D
+    @EventHandler
+    private fun onRender2D(event: Render2DEvent) {
+        if (mode.get() != Mode._2D) return
+
+        Renderer2D.COLOR.begin()
+        count = 0
+
+        mc.level?.let { world ->
+            for (entity in world.entitiesForRendering()) {
+                if (entity !is ItemEntity || !EntityUtils.isInRenderDistance(entity)) continue
+
+                val box = entity.boundingBox
+
+                val x = Mth.lerp(event.tickDelta.toDouble(), entity.xOld, entity.x) - entity.x
+                val y = Mth.lerp(event.tickDelta.toDouble(), entity.yOld, entity.y) - entity.y
+                val z = Mth.lerp(event.tickDelta.toDouble(), entity.zOld, entity.z) - entity.z
+
+                // Check corners
+                pos1.set(Double.Companion.MAX_VALUE, Double.Companion.MAX_VALUE, Double.Companion.MAX_VALUE)
+                pos2.set(0.0, 0.0, 0.0)
+
+                //     Bottom
+                if (checkCorner(box.minX + x, box.minY + y, box.minZ + z, pos1, pos2)) continue
+                if (checkCorner(box.maxX + x, box.minY + y, box.minZ + z, pos1, pos2)) continue
+                if (checkCorner(box.minX + x, box.minY + y, box.maxZ + z, pos1, pos2)) continue
+                if (checkCorner(box.maxX + x, box.minY + y, box.maxZ + z, pos1, pos2)) continue
+
+                //     Top
+                if (checkCorner(box.minX + x, box.maxY + y, box.minZ + z, pos1, pos2)) continue
+                if (checkCorner(box.maxX + x, box.maxY + y, box.minZ + z, pos1, pos2)) continue
+                if (checkCorner(box.minX + x, box.maxY + y, box.maxZ + z, pos1, pos2)) continue
+                if (checkCorner(box.maxX + x, box.maxY + y, box.maxZ + z, pos1, pos2)) continue
+
+                // Setup color
+                val renderData = getItemColorData(entity) ?: continue
+
+
+                // Render
+                if (renderData.shapeMode != ShapeMode.Lines && renderData.sideColor.a > 0) {
+                    Renderer2D.COLOR.quad(pos1.x, pos1.y, pos2.x - pos1.x, pos2.y - pos1.y, renderData.sideColor)
+                }
+
+                if (renderData.shapeMode != ShapeMode.Sides) {
+                    Renderer2D.COLOR.line(pos1.x, pos1.y, pos1.x, pos2.y, renderData.lineColor)
+                    Renderer2D.COLOR.line(pos2.x, pos1.y, pos2.x, pos2.y, renderData.lineColor)
+                    Renderer2D.COLOR.line(pos1.x, pos1.y, pos2.x, pos1.y, renderData.lineColor)
+                    Renderer2D.COLOR.line(pos1.x, pos2.y, pos2.x, pos2.y, renderData.lineColor)
+                }
+
+                count++
+            }
+        }
+
+        Renderer2D.COLOR.render()
+    }
+
+    private fun checkCorner(x: Double, y: Double, z: Double, min: Vector3d, max: Vector3d): Boolean {
+        pos.set(x, y, z)
+        if (!NametagUtils.to2D(pos, 1.0)) return true
+
+        // Check Min
+        if (pos.x < min.x) min.x = pos.x
+        if (pos.y < min.y) min.y = pos.y
+        if (pos.z < min.z) min.z = pos.z
+
+        // Check Max
+        if (pos.x > max.x) max.x = pos.x
+        if (pos.y > max.y) max.y = pos.y
+        if (pos.z > max.z) max.z = pos.z
+
+        return false
+    }
+
+    // Utils
+    private fun getItemColorData(itemEntity: ItemEntity): ESPBlockData? {
+        val stack = itemEntity.item
+        if (stack.count < minCount.get()) return null
+        val item = stack.item
+        if (item is BlockItem) {
+            val block = item.block
+            if (block in blocks.get()) {
+                return getBlockData(block)
+            }
+        }
+        return null
+    }
+
+    private fun getBlockData(block: Block): ESPBlockData {
+        val blockData = blockConfigs.get().get(block)
+        return blockData ?: defaultBlockConfig.get()
+    }
+
+    override fun getInfoString(): String {
+        return count.toString()
+    }
+
+    private enum class Mode {
+        Box,
+        Wireframe,
+        _2D;
+
+        override fun toString(): String {
+            return if (this == Mode._2D) "2D" else super.toString()
+        }
+    }
+}
